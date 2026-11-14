@@ -21,6 +21,24 @@ function owner_() {
   if (!owner || !active || active !== owner.toLowerCase())
     throw new Error("ACCESS_DENIED");
 }
+const PROJECT_SHEETS = {
+  gto: "Система ГТО",
+  mesh: "Расширение МЭШ",
+  seo: "SEO сайта",
+  start: "Точка старта",
+};
+const SHEET_HEADERS = [
+  "Задача",
+  "Описание",
+  "Статус",
+  "Приоритет",
+  "Срок",
+  "Связанные материалы",
+  "Версия / этап",
+  "Дата создания",
+  "Дата изменения",
+];
+const META_HEADERS = ["ID задачи", "Пример"];
 function setupWorkspace() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
@@ -28,53 +46,57 @@ function setupWorkspace() {
     const props = PropertiesService.getScriptProperties();
     const active = Session.getActiveUser().getEmail().toLowerCase();
     const effective = Session.getEffectiveUser().getEmail().toLowerCase();
-    if (!active || active !== effective)
-      throw new Error("Run setup from your own Apps Script editor.");
+    if (!active || active !== effective) throw new Error("ACCESS_DENIED");
     if (
       props.getProperty("OWNER_EMAIL") &&
       props.getProperty("OWNER_EMAIL").toLowerCase() !== active
     )
       throw new Error("ACCESS_DENIED");
-    props.setProperty("OWNER_EMAIL", active);
-    let id = props.getProperty("WORKSPACE_SPREADSHEET_ID");
-    const created = !id;
-    const book = id
-      ? SpreadsheetApp.openById(id)
-      : (typeof SpreadsheetApp.getActiveSpreadsheet === "function" &&
-          SpreadsheetApp.getActiveSpreadsheet()) ||
-        SpreadsheetApp.create("GVI Studio — рабочие задачи");
-    // Persist the ID first; a retry repairs only an empty, newly created sheet.
-    if (!id) props.setProperty("WORKSPACE_SPREADSHEET_ID", book.getId());
-    let sheet = book.getSheetByName("Tasks");
-    if (!sheet) {
-      const sheets = book.getSheets();
-      if (sheets.length !== 1 || sheets[0].getLastRow() !== 0)
-        throw new Error("SCHEMA_ERROR");
-      sheet = sheets[0];
-      sheet.setName("Tasks");
-    }
-    if (sheet.getLastRow() === 0)
-      sheet.getRange(1, 1, 1, TASK_HEADERS.length).setValues([TASK_HEADERS]);
-    else if (
-      JSON.stringify(
-        sheet.getRange(1, 1, 1, TASK_HEADERS.length).getValues()[0],
-      ) !== JSON.stringify(TASK_HEADERS)
-    )
-      throw new Error("SCHEMA_ERROR");
-    sheet.setFrozenRows(1);
-    sheet
-      .getRange(1, 1, 1, TASK_HEADERS.length)
-      .setFontWeight("bold")
-      .setBackground("#f57900");
-    sheet.setColumnWidth(3, 280);
-    sheet.setColumnWidth(4, 400);
-    sheet
-      .getRange(1, 1)
-      .setNote(
-        "Use the GVI Studio panel to edit. Do not rename headers. No GTO participant data belongs here.",
+    const existing = props.getProperty("WORKSPACE_SPREADSHEET_ID");
+    const book = existing
+      ? SpreadsheetApp.openById(existing)
+      : SpreadsheetApp.getActiveSpreadsheet();
+    if (!book)
+      throw new Error(
+        "Откройте импортированную таблицу и запустите скрипт из неё.",
       );
+    const sheets = Object.keys(PROJECT_SHEETS).map((id) => {
+      const sh = book.getSheetByName(PROJECT_SHEETS[id]);
+      if (!sh || sh.getLastColumn() > 11 || sh.getMaxColumns() < 9)
+        throw new Error("SCHEMA_ERROR");
+      const rows = sh
+        .getRange(
+          1,
+          1,
+          Math.max(sh.getLastRow(), 1),
+          Math.min(sh.getMaxColumns(), 11),
+        )
+        .getValues()
+        .map((row) =>
+          Array.from({ length: 11 }, (_, i) =>
+            row[i] === undefined ? "" : row[i],
+          ),
+        );
+      if (JSON.stringify(rows[0].slice(0, 9)) !== JSON.stringify(SHEET_HEADERS))
+        throw new Error("SCHEMA_ERROR");
+      const meta = rows[0].slice(9, 11);
+      const empty = meta.every((x) => x === "");
+      if (!empty && JSON.stringify(meta) !== JSON.stringify(META_HEADERS))
+        throw new Error("SCHEMA_ERROR");
+      if (empty && rows.slice(1).some((r) => r[9] !== "" || r[10] !== ""))
+        throw new Error("SCHEMA_ERROR");
+      return { sh, empty };
+    });
+    // Only the two empty metadata headers are added. Existing task cells remain untouched.
+    for (const { sh, empty } of sheets) {
+      if (sh.getMaxColumns() < 11)
+        sh.insertColumnsAfter(sh.getMaxColumns(), 11 - sh.getMaxColumns());
+      if (empty) sh.getRange(1, 10, 1, 2).setValues([META_HEADERS]);
+    }
     SpreadsheetApp.flush();
-    return { spreadsheetUrl: book.getUrl(), created: created };
+    props.setProperty("OWNER_EMAIL", active);
+    props.setProperty("WORKSPACE_SPREADSHEET_ID", book.getId());
+    return { spreadsheetUrl: book.getUrl(), created: !existing };
   } finally {
     lock.releaseLock();
   }
@@ -143,47 +165,111 @@ function normalizeTasks_(tasks) {
     return out;
   });
 }
+function sheetDate_(value, timestamp) {
+  if (value === "" || value == null) return "";
+  let str = String(value);
+  if (typeof value === "number")
+    str = new Date(Math.round((value - 25569) * 86400000)).toISOString();
+  const match = str.match(/^(\d{2})\.(\d{2})\.(\d{4})$/);
+  if (match) str = match[3] + "-" + match[2] + "-" + match[1];
+  if (timestamp && /^\d{4}-\d{2}-\d{2}$/.test(str)) str += "T00:00:00.000Z";
+  if (timestamp) {
+    if (isNaN(Date.parse(str))) throw new Error("SCHEMA_ERROR");
+    return new Date(str).toISOString();
+  }
+  const day = str.slice(0, 10);
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(day) ||
+    isNaN(Date.parse(day)) ||
+    new Date(day).toISOString().slice(0, 10) !== day
+  )
+    throw new Error("SCHEMA_ERROR");
+  return day;
+}
 function read_() {
   const book = book_(),
-    sheet = book.getSheetByName("Tasks");
-  if (!sheet || sheet.getLastRow() > 2001) throw new Error("SCHEMA_ERROR");
-  const values =
-    Sheets.Spreadsheets.Values.get(book.getId(), "'Tasks'!A:L", {
-      valueRenderOption: "UNFORMATTED_VALUE",
-    }).values || [];
-  if (values.length > 2001) throw new Error("SCHEMA_ERROR");
-  const rows = values.map((r) =>
-    TASK_HEADERS.map((_, i) => (r[i] === undefined ? "" : r[i])),
-  );
-  if (JSON.stringify(rows[0]) !== JSON.stringify(TASK_HEADERS))
-    throw new Error("SCHEMA_ERROR");
-  const tasks = normalizeTasks_(
-    rows
-      .slice(1)
-      .filter((r) => r.some((v) => v !== ""))
-      .map((row) =>
-        Object.fromEntries(
-          TASK_HEADERS.map((k, i) => [
-            k,
-            k === "sample" ? row[i] === true : String(row[i] ?? ""),
-          ]),
-        ),
+    projects = [],
+    tasks = [],
+    pending = [];
+  for (const id of Object.keys(PROJECT_SHEETS)) {
+    const sheet = book.getSheetByName(PROJECT_SHEETS[id]);
+    if (!sheet || sheet.getLastRow() > 2001 || sheet.getLastColumn() > 11)
+      throw new Error("SCHEMA_ERROR");
+    const values =
+      Sheets.Spreadsheets.Values.get(
+        book.getId(),
+        "'" + PROJECT_SHEETS[id] + "'!A:K",
+        { valueRenderOption: "UNFORMATTED_VALUE" },
+      ).values || [];
+    if (values.length > 2001) throw new Error("SCHEMA_ERROR");
+    const rows = values.map((row) =>
+      Array.from({ length: 11 }, (_, i) =>
+        row[i] === undefined ? "" : row[i],
       ),
-  );
+    );
+    if (
+      JSON.stringify(rows[0]) !==
+      JSON.stringify([...SHEET_HEADERS, ...META_HEADERS])
+    )
+      throw new Error("SCHEMA_ERROR");
+    for (let i = 1; i < rows.length; i++) {
+      const row = rows[i];
+      if (row.every((v) => v === "")) continue;
+      if (!String(row[0]).trim()) throw new Error("SCHEMA_ERROR");
+      const now = new Date().toISOString();
+      for (const col of [7, 8, 9])
+        if (!row[col]) {
+          row[col] = col === 9 ? Utilities.getUuid() : now;
+          pending.push({
+            updateCells: {
+              range: {
+                sheetId: sheet.getSheetId(),
+                startRowIndex: i,
+                endRowIndex: i + 1,
+                startColumnIndex: col,
+                endColumnIndex: col + 1,
+              },
+              rows: [
+                { values: [{ userEnteredValue: { stringValue: row[col] } }] },
+              ],
+              fields: "userEnteredValue",
+            },
+          });
+        }
+      const status = String(row[2] || "Запланировано")
+        .trim()
+        .toLowerCase();
+      const priority = String(row[3] || "Средний")
+        .trim()
+        .toLowerCase();
+      tasks.push({
+        id: String(row[9]),
+        project: id,
+        title: String(row[0]),
+        description: String(row[1]),
+        status,
+        priority,
+        due: sheetDate_(row[4], false),
+        materials: String(row[5]),
+        stage: String(row[6]),
+        createdAt: sheetDate_(row[7], true),
+        updatedAt: sheetDate_(row[8], true),
+        sample: row[10] === true || String(row[10]).toLowerCase() === "true",
+      });
+    }
+    projects.push({ id, sheet, rows });
+  }
+  const checked = normalizeTasks_(tasks);
+  if (pending.length)
+    Sheets.Spreadsheets.batchUpdate({ requests: pending }, book.getId());
   const digest = Utilities.computeDigest(
     Utilities.DigestAlgorithm.SHA_256,
-    JSON.stringify(rows),
+    JSON.stringify(projects.map((p) => p.rows)),
     Utilities.Charset.UTF_8,
   )
     .map((b) => ("0" + ((b + 256) % 256).toString(16)).slice(-2))
     .join("");
-  return {
-    book: book,
-    sheet: sheet,
-    tasks: tasks,
-    revision: digest,
-    rowCount: rows.length,
-  };
+  return { book, projects, tasks: checked, revision: digest };
 }
 function snapshot_(data) {
   return {
@@ -221,42 +307,56 @@ function saveTasks_(request) {
   try {
     const current = read_();
     if (current.revision !== request.revision) throw new Error("CONFLICT");
-    const matrix = [
-      TASK_HEADERS,
-      ...tasks.map((t) => TASK_HEADERS.map((k) => t[k])),
-    ];
-    // Atomic Sheets API request. Explicit stringValue prevents formula injection.
     const requests = [];
-    if (matrix.length > current.sheet.getMaxRows())
+    const titleCase = (value) => value.charAt(0).toUpperCase() + value.slice(1);
+    for (const project of current.projects) {
+      const matrix = [
+        [...SHEET_HEADERS, ...META_HEADERS],
+        ...tasks
+          .filter((t) => t.project === project.id)
+          .map((t) => [
+            t.title,
+            t.description,
+            titleCase(t.status),
+            titleCase(t.priority),
+            t.due,
+            t.materials,
+            t.stage,
+            t.createdAt,
+            t.updatedAt,
+            t.id,
+            t.sample,
+          ]),
+      ];
+      const end = Math.max(matrix.length, project.rows.length);
+      if (end > project.sheet.getMaxRows())
+        requests.push({
+          appendDimension: {
+            sheetId: project.sheet.getSheetId(),
+            dimension: "ROWS",
+            length: end - project.sheet.getMaxRows(),
+          },
+        });
       requests.push({
-        appendDimension: {
-          sheetId: current.sheet.getSheetId(),
-          dimension: "ROWS",
-          length: matrix.length - current.sheet.getMaxRows(),
+        updateCells: {
+          range: {
+            sheetId: project.sheet.getSheetId(),
+            startRowIndex: 0,
+            endRowIndex: end,
+            startColumnIndex: 0,
+            endColumnIndex: 11,
+          },
+          rows: matrix.map((row) => ({
+            values: row.map((v) => ({
+              userEnteredValue:
+                typeof v === "boolean" ? { boolValue: v } : { stringValue: v },
+            })),
+          })),
+          fields: "userEnteredValue",
         },
       });
-    requests.push({
-      updateCells: {
-        range: {
-          sheetId: current.sheet.getSheetId(),
-          startRowIndex: 0,
-          endRowIndex: Math.max(matrix.length, current.rowCount),
-          startColumnIndex: 0,
-          endColumnIndex: TASK_HEADERS.length,
-        },
-        rows: matrix.map((row) => ({
-          values: row.map((v) => ({
-            userEnteredValue:
-              typeof v === "boolean" ? { boolValue: v } : { stringValue: v },
-          })),
-        })),
-        fields: "userEnteredValue",
-      },
-    });
-    Sheets.Spreadsheets.batchUpdate(
-      { requests: requests },
-      current.book.getId(),
-    );
+    }
+    Sheets.Spreadsheets.batchUpdate({ requests }, current.book.getId());
     return snapshot_(read_());
   } finally {
     lock.releaseLock();
