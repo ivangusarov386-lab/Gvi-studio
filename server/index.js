@@ -13,6 +13,7 @@ const publicFiles = new Map([
   ["/app.js", "app.js"],
   ["/styles.css", "styles.css"],
   ["/lib/store.js", "lib/store.js"],
+  ["/lib/cloud-tasks.js", "lib/cloud-tasks.js"],
   ["/lib/catalog.js", "lib/catalog.js"],
   ["/assets/gvi-studio-logo.jpeg", "assets/gvi-studio-logo.jpeg"],
 ]);

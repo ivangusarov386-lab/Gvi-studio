@@ -14,7 +14,7 @@ test("Pages subdirectory loads CSS, logo and modules without API or root request
   await page.goto(url + "#projects/gto/summary");
   await expect(page.getByText("ДЕМО · синтетические данные")).toBeVisible();
   await expect(
-    page.getByText(/Статическое демо · Google Sheets не подключены/),
+    page.getByText(/Статическое демо ГТО · источники ГТО не подключены/),
   ).toBeVisible();
   await expect(page.locator("body")).toHaveCSS(
     "background-color",

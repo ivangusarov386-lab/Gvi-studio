@@ -21,7 +21,7 @@ export default defineConfig({
       reuseExistingServer: false,
     },
     {
-      command: "node tests/serve-pages.js",
+      command: "npm run build:google && node tests/serve-pages.js",
       url: "http://127.0.0.1:3101/Gvi-studio/",
       reuseExistingServer: false,
     },

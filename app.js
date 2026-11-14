@@ -1,3 +1,4 @@
+import { CLOUD_TASKS, cloudCall } from "./lib/cloud-tasks.js";
 import { SOURCE_MODE } from "./lib/runtime.js";
 import {
   projects,
@@ -60,6 +61,14 @@ const gtoTabs = {
   protocol: "Протокол",
   connection: "Подключение",
 };
+const cloud = {
+  ready: false,
+  busy: false,
+  revision: "",
+  syncedAt: "",
+  spreadsheetUrl: "",
+  error: "",
+};
 let state,
   storageError = "",
   editing = null,
@@ -76,7 +85,8 @@ let gto = null,
 const gtoFilters = { from: "", to: "", eventDate: "", category: "" };
 try {
   state = load();
-  state = persist(state);
+  if (CLOUD_TASKS) state.tasks = [];
+  else state = persist(state);
 } catch {
   storageError =
     "Локальное хранилище недоступно или повреждено. Существующие данные не перезаписаны. Экспортируйте исходную копию в настройках.";
@@ -102,18 +112,76 @@ function toast(text) {
   clearTimeout(toast.timer);
   toast.timer = setTimeout(() => ($("#notification").textContent = ""), 5000);
 }
-function save(next, text, p = project) {
-  if (storageError) throw new Error(storageError);
+function cloudSnapshot(value) {
+  const checked = validate({ ...state, tasks: value.tasks });
+  if (typeof value.revision !== "string" || !value.revision)
+    throw new Error("Некорректный ответ облака.");
+  state = { ...state, tasks: checked.tasks };
+  Object.assign(cloud, {
+    ready: true,
+    revision: value.revision,
+    syncedAt: value.syncedAt,
+    spreadsheetUrl: value.spreadsheetUrl,
+    error: "",
+  });
+}
+async function syncTasks() {
+  if (!CLOUD_TASKS || cloud.busy) return;
+  cloud.busy = true;
+  render();
+  try {
+    cloudSnapshot(await cloudCall("getTasks"));
+  } catch (err) {
+    cloud.error = err.message;
+  } finally {
+    cloud.busy = false;
+    render();
+  }
+}
+async function save(next, text, p = project) {
+  const taskChanged =
+    JSON.stringify(next.tasks) !== JSON.stringify(state.tasks);
+  if (CLOUD_TASKS && taskChanged) {
+    if (!cloud.ready || cloud.busy)
+      throw new Error("Дождитесь загрузки облака и повторите сохранение.");
+    cloud.busy = true;
+    try {
+      const result = await cloudCall("saveTasks", {
+        revision: cloud.revision,
+        tasks: next.tasks,
+      });
+      cloudSnapshot(result);
+      next.tasks = state.tasks;
+    } catch (err) {
+      cloud.error = err.message;
+      throw err;
+    } finally {
+      cloud.busy = false;
+    }
+  } else if (storageError) throw new Error(storageError);
   next.history.unshift({ text, project: p, at: new Date().toISOString() });
   next.history = next.history.slice(0, 300);
   try {
-    state = persist(next);
+    if (CLOUD_TASKS) {
+      persist({ ...next, tasks: [] });
+      state = next;
+    } else state = persist(next);
   } catch {
-    throw new Error(
-      "Не удалось сохранить. Возможно, хранилище заполнено. Экспортируйте копию и уменьшите вложения.",
-    );
+    if (CLOUD_TASKS && taskChanged) {
+      state = next;
+      storageError =
+        "Задачи сохранены в Google Sheets. Локальное хранилище материалов недоступно.";
+    } else
+      throw new Error(
+        "Не удалось сохранить. Возможно, хранилище заполнено. Экспортируйте копию и уменьшите вложения.",
+      );
   }
 }
+function cloudStatus() {
+  if (!CLOUD_TASKS) return "";
+  return `<div class="notice"><strong>${cloud.busy ? "Связь с Google…" : cloud.ready ? "Задачи · Google Sheets" : "Облачные задачи ещё не загружены"}</strong><p>Последнее подтверждение: ${date(cloud.syncedAt)} (Москва). Материалы, версии, ошибки, ролики и история пока локальные.</p><div class="actions">${button("Обновить облако", "cloud-refresh", cloud.busy ? "disabled" : "")}${link(cloud.spreadsheetUrl, "Открыть таблицу задач")}</div>${cloud.error ? `<p class="error" role="alert">${esc(cloud.error)} ${cloud.ready ? "Показаны ранее полученные задачи." : ""}</p>` : ""}</div>`;
+}
+
 function route() {
   const [s, p, t] = location.hash.slice(1).split("/");
   section = [
@@ -132,6 +200,13 @@ function route() {
   render();
 }
 function render() {
+  if (CLOUD_TASKS) {
+    $(".os-foot span:last-child").textContent =
+      "Задачи в Google Sheets · остальные разделы локально";
+    $(".os-private").textContent = "Личное облако · задачи в Google Sheets";
+    $("#storage-notice").textContent =
+      "Задачи общие для компьютера и iPhone после входа в ваш Google-аккаунт. Остальные разделы пока сохраняются в браузере.";
+  }
   $("#navigation").innerHTML = Object.entries({
     overview: "Обзор",
     projects: "Проекты",
@@ -150,9 +225,11 @@ function render() {
         `<button class="os-project" data-action="project" data-id="${p.id}" aria-pressed="${section === "projects" && project === p.id}"><span class="os-icon"><span class="project-number">0${i + 1}</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span><strong>${p.name}</strong><small>${p.sub}</small></button>`,
     )
     .join("");
-  let html = storageError
-    ? `<p class="error" role="alert">${esc(storageError)}</p>`
-    : "";
+  let html =
+    cloudStatus() +
+    (storageError
+      ? `<p class="error" role="alert">${esc(storageError)}</p>`
+      : "");
   if (section === "overview") html += overview();
   if (section === "projects") {
     const available = {
@@ -217,7 +294,7 @@ function projectSummary() {
 function renderNext() {
   const t = nextTasks(section === "projects" ? project : filterProject)[0];
   $("#next-action").innerHTML =
-    `<div class="os-nexttop"><div class="os-kicker">02 / Следующее действие</div><h4>${esc(t?.title || "Выберите следующий шаг")}</h4><p>${esc(t?.description || "Добавьте задачу и определите её приоритет.")}</p></div><div class="os-bottom"><div class="os-detail">${t ? esc(projectName(t.project)) : "Всё начинается с одной задачи"}</div>${t ? `<div class="os-detail">Приоритет: ${esc(t.priority)}</div><div class="os-detail">Срок: ${esc(t.due || "не задан")}</div>${button("Открыть задачу", "edit", `data-kind="tasks" data-id="${esc(t.id)}"`, true)}` : button("Создать задачу", "new", 'data-kind="tasks"', true)}<p class="muted section">${t?.sample ? "Это стартовый пример из макета. Измените его под свою работу." : "Изменения сохраняются в этом браузере."}</p></div>`;
+    `<div class="os-nexttop"><div class="os-kicker">02 / Следующее действие</div><h4>${esc(t?.title || "Выберите следующий шаг")}</h4><p>${esc(t?.description || "Добавьте задачу и определите её приоритет.")}</p></div><div class="os-bottom"><div class="os-detail">${t ? esc(projectName(t.project)) : "Всё начинается с одной задачи"}</div>${t ? `<div class="os-detail">Приоритет: ${esc(t.priority)}</div><div class="os-detail">Срок: ${esc(t.due || "не задан")}</div>${button("Открыть задачу", "edit", `data-kind="tasks" data-id="${esc(t.id)}"`, true)}` : button("Создать задачу", "new", 'data-kind="tasks"', true)}<p class="muted section">${t?.sample ? "Это стартовый пример из макета. Измените его под свою работу." : CLOUD_TASKS ? "Задачи сохраняются в Google Sheets." : "Изменения сохраняются в этом браузере."}</p></div>`;
 }
 function taskRows(rows) {
   return rows.length
@@ -312,10 +389,10 @@ function compareCards(a, b) {
     .join("");
 }
 function settings() {
-  return `<h2>Настройки и резервная копия</h2><p class="notice">Данные привязаны к браузеру и адресу панели. Очистка данных сайта удалит их. Компьютер и iPhone не синхронизируются. Резервная копия содержит ваши тексты и файлы — храните её приватно.</p><div class="actions">${button("Экспортировать копию", "export", "", true)}${button("Скачать исходное хранилище", "raw")}</div><label class="field">Импорт резервной копии (JSON, до 10 МБ)<input type="file" id="import" accept="application/json,.json"></label><p class="muted">Импорт заменяет все локальные данные после подтверждения. Сначала экспортируйте текущую копию.</p><h3>Подключение ГТО</h3>${gtoStatus()}<p>Рабочий режим выбирается на сервере. Учётные данные Google в браузере не хранятся.</p><h3>Следующий этап хранения</h3><p>SQLite на том же сервере за авторизацией: одна база задач, материалов и истории для всех ваших устройств. В этой версии серверного хранения ещё нет.</p>`;
+  return `<h2>Настройки и резервная копия</h2><p class="notice">${CLOUD_TASKS ? "Задачи хранятся в вашей Google-таблице. Остальные разделы пока локальные. Экспорт включает текущий снимок облачных задач и локальные материалы." : "Данные привязаны к браузеру и адресу панели. Очистка данных сайта удалит их. Компьютер и iPhone не синхронизируются."} Резервная копия содержит ваши тексты и файлы — храните её приватно.</p><div class="actions">${button("Экспортировать копию", "export", "", true)}${button("Скачать исходное хранилище", "raw")}</div><label class="field">Импорт резервной копии (JSON, до 10 МБ)<input type="file" id="import" accept="application/json,.json"></label><p class="muted">${CLOUD_TASKS ? "Импорт добавляет новые задачи в Google Sheets. Материалы и стартовые примеры не переносятся; существующие задачи не заменяются." : "Импорт заменяет все локальные данные после подтверждения. Сначала экспортируйте текущую копию."}</p><h3>Подключение ГТО</h3>${gtoStatus()}<p>Рабочий режим выбирается на сервере. Учётные данные Google в браузере не хранятся.</p><h3>Следующий этап хранения</h3><p>${CLOUD_TASKS ? "Материалы и версии можно перенести в Google Sheets, а файлы — в приватную папку Google Drive. Сейчас синхронизируются только задачи." : "SQLite на том же сервере за авторизацией: одна база задач, материалов и истории для всех ваших устройств. В этой версии серверного хранения ещё нет."}</p>`;
 }
 function gtoStatus() {
-  return `${SOURCE_MODE === "static-demo" ? '<p class="notice">Статическое демо · Google Sheets не подключены. Показаны только синтетические данные. Задачи сохраняются в этом браузере.</p>' : ""}<div class="toolbar"><span class="badge ${gto?.mode === "demo" ? "demo" : ""}">${gto?.mode === "demo" ? "ДЕМО · синтетические данные" : gto?.mode === "sheets" ? "Google Sheets · только чтение" : "Источник ещё не определён"}</span>${button(gtoLoading ? "Обновление…" : SOURCE_MODE === "static-demo" ? "Пересчитать демо" : "Обновить", "refresh", gtoLoading ? "disabled" : "")}</div><p class="muted">${SOURCE_MODE === "static-demo" ? `Демо пересчитано: ${date(gto?.lastSuccess)} (Москва). Это не обновление Google Sheets.` : `Последнее успешное обновление: ${date(gto?.lastSuccess)} (Москва). Сервер обновляет источник не чаще раза в 30 секунд.`}</p>${gtoLoading ? '<p role="status">Загрузка статистики…</p>' : ""}${gtoError ? `<p class="error" role="alert">${esc(gtoError)} ${gto?.stats ? "Показаны устаревшие данные." : ""}</p>` : ""}`;
+  return `${SOURCE_MODE === "static-demo" ? '<p class="notice">Статическое демо ГТО · источники ГТО не подключены. Показаны только синтетические данные.</p>' : ""}<div class="toolbar"><span class="badge ${gto?.mode === "demo" ? "demo" : ""}">${gto?.mode === "demo" ? "ДЕМО · синтетические данные" : gto?.mode === "sheets" ? "Google Sheets · только чтение" : "Источник ещё не определён"}</span>${button(gtoLoading ? "Обновление…" : SOURCE_MODE === "static-demo" ? "Пересчитать демо" : "Обновить", "refresh", gtoLoading ? "disabled" : "")}</div><p class="muted">${SOURCE_MODE === "static-demo" ? `Демо пересчитано: ${date(gto?.lastSuccess)} (Москва). Это не обновление Google Sheets.` : `Последнее успешное обновление: ${date(gto?.lastSuccess)} (Москва). Сервер обновляет источник не чаще раза в 30 секунд.`}</p>${gtoLoading ? '<p role="status">Загрузка статистики…</p>' : ""}${gtoError ? `<p class="error" role="alert">${esc(gtoError)} ${gto?.stats ? "Показаны устаревшие данные." : ""}</p>` : ""}`;
 }
 function statsCards(s, short = false) {
   const entries = short
@@ -557,6 +634,9 @@ function openEditor(kind, id) {
       : "");
   $("#editor").showModal();
 }
+$("#editor").addEventListener("cancel", (e) => {
+  if ($("#editor-form [type=submit]").disabled) e.preventDefault();
+});
 $("#editor-form").addEventListener("submit", async (e) => {
   e.preventDefault();
   const submit = e.submitter;
@@ -609,10 +689,28 @@ $("#editor-form").addEventListener("submit", async (e) => {
     const next = structuredClone(state);
     if (id) next[kind] = next[kind].map((r) => (r.id === id ? item : r));
     else next[kind].unshift(item);
-    save(next, `${id ? "Изменено" : "Создано"}: ${item.title}`, item.project);
+    if (
+      CLOUD_TASKS &&
+      kind === "tasks" &&
+      id &&
+      JSON.stringify(existing) !==
+        JSON.stringify(state.tasks.find((t) => t.id === id))
+    )
+      throw new Error(
+        "Задача обновилась на другом устройстве. Скопируйте введённый текст и откройте актуальную карточку заново.",
+      );
+    await save(
+      next,
+      `${id ? "Изменено" : "Создано"}: ${item.title}`,
+      item.project,
+    );
     $("#editor").close();
     render();
-    toast("Сохранено на этом устройстве.");
+    toast(
+      CLOUD_TASKS && kind === "tasks"
+        ? "Сохранено в Google Sheets."
+        : "Сохранено на этом устройстве.",
+    );
   } catch (err) {
     $("#form-error").textContent = err.message;
     $("#form-error").tabIndex = -1;
@@ -629,8 +727,9 @@ function download(data, name, type = "application/json") {
   a.click();
   setTimeout(() => URL.revokeObjectURL(url), 1000);
 }
-document.addEventListener("click", (e) => {
+document.addEventListener("click", async (e) => {
   if (e.target.closest("[data-close]")) {
+    if ($("#editor-form [type=submit]").disabled) return;
     $("#editor").close();
     return;
   }
@@ -641,6 +740,7 @@ document.addEventListener("click", (e) => {
   if (action === "tab") location.hash = `projects/${project}/${id}`;
   if (action === "new" || action === "edit")
     openEditor(kind, action === "edit" ? id : null);
+  if (action === "cloud-refresh") await syncTasks();
   if (action === "refresh") refresh();
   if (action === "resetFilters") {
     Object.keys(gtoFilters).forEach((k) => (gtoFilters[k] = ""));
@@ -652,7 +752,7 @@ document.addEventListener("click", (e) => {
     try {
       const next = structuredClone(state);
       next[kind] = next[kind].filter((r) => r.id !== id);
-      save(next, `Удалено: ${item.title}`, item.project);
+      await save(next, `Удалено: ${item.title}`, item.project);
       render();
       toast("Запись удалена.");
     } catch (err) {
@@ -713,6 +813,43 @@ document.addEventListener("change", async (e) => {
       if (!file) return;
       if (file.size > 10 * 1024 * 1024) throw new Error("Копия больше 10 МБ.");
       const incoming = validate(JSON.parse(await file.text()));
+      if (CLOUD_TASKS) {
+        const rows = incoming.tasks.filter((t) => !t.sample);
+        const known = new Map(state.tasks.map((t) => [t.id, t]));
+        if (
+          rows.some(
+            (t) =>
+              known.has(t.id) &&
+              JSON.stringify(known.get(t.id)) !== JSON.stringify(t),
+          )
+        )
+          throw new Error(
+            "В копии есть другая версия существующей задачи. Сначала устраните конфликт; облако не изменено.",
+          );
+        const additions = rows.filter((t) => !known.has(t.id));
+        if (!additions.length) {
+          toast(
+            "Новых задач для переноса нет. Стартовые примеры не переносятся.",
+          );
+          return;
+        }
+        if (
+          !confirm(
+            `Добавить ${additions.length} задач в Google Sheets? Существующие задачи останутся. Материалы и примеры не переносятся.`,
+          )
+        )
+          return;
+        const next = structuredClone(state);
+        next.tasks.push(...additions);
+        await save(
+          next,
+          "Перенесены задачи из резервной копии",
+          additions[0].project,
+        );
+        render();
+        toast("Задачи перенесены в Google Sheets.");
+        return;
+      }
       if (
         !confirm(
           "Заменить все локальные данные этой копией? Текущие записи будут заменены.",
@@ -740,7 +877,8 @@ window.addEventListener("hashchange", () => {
 window.addEventListener("storage", (e) => {
   if (e.key === KEY) {
     try {
-      state = load();
+      const local = load();
+      state = CLOUD_TASKS ? { ...local, tasks: state.tasks } : local;
       storageError = "";
       render();
       toast("Данные обновлены в другой вкладке.");
@@ -751,3 +889,12 @@ window.addEventListener("storage", (e) => {
 });
 route();
 refresh();
+if (CLOUD_TASKS) {
+  syncTasks();
+  setInterval(() => {
+    if (!document.hidden && !$("#editor").open) syncTasks();
+  }, 60000);
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden && !$("#editor").open) syncTasks();
+  });
+}

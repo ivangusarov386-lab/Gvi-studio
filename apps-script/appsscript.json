@@ -1,0 +1,9 @@
+{
+  "timeZone": "Europe/Moscow",
+  "runtimeVersion": "V8",
+  "dependencies": {
+    "enabledAdvancedServices": [{"userSymbol": "Sheets", "serviceId": "sheets", "version": "v4"}]
+  },
+  "oauthScopes": ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/userinfo.email"],
+  "webapp": {"access": "MYSELF", "executeAs": "USER_DEPLOYING"}
+}

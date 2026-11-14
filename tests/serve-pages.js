@@ -7,6 +7,7 @@ const files = new Set([
   "app.js",
   "lib/runtime.js",
   "lib/store.js",
+  "lib/cloud-tasks.js",
   "lib/catalog.js",
   "lib/gto-demo.js",
   "lib/gto-stats.js",
@@ -21,6 +22,14 @@ const mime = {
 http
   .createServer(async (req, res) => {
     const path = new URL(req.url, "http://localhost").pathname;
+    if (path === "/google/") {
+      const data = await readFile(
+        new URL("../.local/apps-script/Index.html", import.meta.url),
+      );
+      res.writeHead(200, { "Content-Type": "text/html" });
+      res.end(data);
+      return;
+    }
     if (path === "/favicon.ico") {
       res.writeHead(204);
       res.end();
