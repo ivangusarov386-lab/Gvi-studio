@@ -18,7 +18,7 @@ html = html
     '<link rel="stylesheet" href="./styles.css" />',
     "<style>" + css.replace(/<\/style/gi, "<\\/style") + "</style>",
   )
-  .replace('<script type="module" src="./app.js"></script>', "")
+  .replace(/^[ \t]*<script type="module" src="\.\/app\.js"><\/script>\r?\n/m, "")
   .replace("./assets/gvi-studio-logo.jpeg", "data:image/jpeg;base64," + logo)
   .replace(
     "</body>",
