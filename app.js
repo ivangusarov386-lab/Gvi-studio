@@ -1,4 +1,12 @@
-import { CLOUD_TASKS, cloudCall } from "./lib/cloud-tasks.js";
+import {
+  CLOUD_TASKS,
+  REMOTE_TASKS,
+  cloudCall,
+  setTaskEndpoint,
+  clearTaskEndpoint,
+  loginTasks,
+  signOutTasks,
+} from "./lib/cloud-tasks.js";
 import { SOURCE_MODE } from "./lib/runtime.js";
 import {
   projects,
@@ -179,7 +187,7 @@ async function save(next, text, p = project) {
 }
 function cloudStatus() {
   if (!CLOUD_TASKS) return "";
-  return `<div class="notice"><strong>${cloud.busy ? "Связь с Google…" : cloud.ready ? "Задачи · Google Sheets" : "Облачные задачи ещё не загружены"}</strong><p>Последнее подтверждение: ${date(cloud.syncedAt)} (Москва). Материалы, версии, ошибки, ролики и история пока локальные.</p><div class="actions">${button("Обновить облако", "cloud-refresh", cloud.busy ? "disabled" : "")}${link(cloud.spreadsheetUrl, "Открыть таблицу задач")}</div>${cloud.error ? `<p class="error" role="alert">${esc(cloud.error)} ${cloud.ready ? "Показаны ранее полученные задачи." : ""}</p>` : ""}</div>`;
+  return `<div class="notice">${REMOTE_TASKS ? `<form id="task-login" class="filters"><label>Пароль таблицы задач<input type="password" name="password" autocomplete="current-password" required></label><button type="submit">Войти</button>${button("Выйти", "task-logout")}</form>` : ""}<strong>${cloud.busy ? "Связь с Google…" : cloud.ready ? "Задачи · Google Sheets" : "Облачные задачи ещё не загружены"}</strong><p>Последнее подтверждение: ${date(cloud.syncedAt)} (Москва). Материалы, версии, ошибки, ролики и история пока локальные.</p><div class="actions">${button("Обновить облако", "cloud-refresh", cloud.busy ? "disabled" : "")}${link(cloud.spreadsheetUrl, "Открыть таблицу задач")}</div>${cloud.error ? `<p class="error" role="alert">${esc(cloud.error)} ${cloud.ready ? "Показаны ранее полученные задачи." : ""}</p>` : ""}</div>`;
 }
 
 function route() {
@@ -205,7 +213,7 @@ function render() {
       "Задачи в Google Sheets · остальные разделы локально";
     $(".os-private").textContent = "Личное облако · задачи в Google Sheets";
     $("#storage-notice").textContent =
-      "Задачи общие для компьютера и iPhone после входа в ваш Google-аккаунт. Остальные разделы пока сохраняются в браузере.";
+      "Задачи общие для компьютера и iPhone после входа с паролем таблицы. Остальные разделы пока сохраняются в браузере.";
   }
   $("#navigation").innerHTML = Object.entries({
     overview: "Обзор",
@@ -389,7 +397,10 @@ function compareCards(a, b) {
     .join("");
 }
 function settings() {
-  return `<h2>Настройки и резервная копия</h2><p class="notice">${CLOUD_TASKS ? "Задачи хранятся в вашей Google-таблице. Остальные разделы пока локальные. Экспорт включает текущий снимок облачных задач и локальные материалы." : "Данные привязаны к браузеру и адресу панели. Очистка данных сайта удалит их. Компьютер и iPhone не синхронизируются."} Резервная копия содержит ваши тексты и файлы — храните её приватно.</p><div class="actions">${button("Экспортировать копию", "export", "", true)}${button("Скачать исходное хранилище", "raw")}</div><label class="field">Импорт резервной копии (JSON, до 10 МБ)<input type="file" id="import" accept="application/json,.json"></label><p class="muted">${CLOUD_TASKS ? "Импорт добавляет новые задачи в Google Sheets. Материалы и стартовые примеры не переносятся; существующие задачи не заменяются." : "Импорт заменяет все локальные данные после подтверждения. Сначала экспортируйте текущую копию."}</p><h3>Подключение ГТО</h3>${gtoStatus()}<p>Рабочий режим выбирается на сервере. Учётные данные Google в браузере не хранятся.</p><h3>Следующий этап хранения</h3><p>${CLOUD_TASKS ? "Материалы и версии можно перенести в Google Sheets, а файлы — в приватную папку Google Drive. Сейчас синхронизируются только задачи." : "SQLite на том же сервере за авторизацией: одна база задач, материалов и истории для всех ваших устройств. В этой версии серверного хранения ещё нет."}</p>`;
+  return (
+    `<div class="section"><h3>Таблица задач</h3><p>Подключите адрес вашего Apps Script. Сначала экспортируйте локальные задачи для переноса.</p><form id="task-endpoint" class="filters"><label>Адрес Apps Script<input type="url" name="endpoint" placeholder="https://script.google.com/macros/s/.../exec" required></label><button type="submit">Подключить</button></form>${CLOUD_TASKS && REMOTE_TASKS ? button("Отключить таблицу", "task-disconnect") + button("Скачать копию до подключения", "task-backup") : ""}</div>` +
+    `<h2>Настройки и резервная копия</h2><p class="notice">${CLOUD_TASKS ? "Задачи хранятся в вашей Google-таблице. Остальные разделы пока локальные. Экспорт включает текущий снимок облачных задач и локальные материалы." : "Данные привязаны к браузеру и адресу панели. Очистка данных сайта удалит их. Компьютер и iPhone не синхронизируются."} Резервная копия содержит ваши тексты и файлы — храните её приватно.</p><div class="actions">${button("Экспортировать копию", "export", "", true)}${button("Скачать исходное хранилище", "raw")}</div><label class="field">Импорт резервной копии (JSON, до 10 МБ)<input type="file" id="import" accept="application/json,.json"></label><p class="muted">${CLOUD_TASKS ? "Импорт добавляет новые задачи в Google Sheets. Материалы и стартовые примеры не переносятся; существующие задачи не заменяются." : "Импорт заменяет все локальные данные после подтверждения. Сначала экспортируйте текущую копию."}</p><h3>Подключение ГТО</h3>${gtoStatus()}<p>Рабочий режим выбирается на сервере. Учётные данные Google в браузере не хранятся.</p><h3>Следующий этап хранения</h3><p>${CLOUD_TASKS ? "Материалы и версии можно перенести в Google Sheets, а файлы — в приватную папку Google Drive. Сейчас синхронизируются только задачи." : "SQLite на том же сервере за авторизацией: одна база задач, материалов и истории для всех ваших устройств. В этой версии серверного хранения ещё нет."}</p>`
+  );
 }
 function gtoStatus() {
   return `${SOURCE_MODE === "static-demo" ? '<p class="notice">Статическое демо ГТО · источники ГТО не подключены. Показаны только синтетические данные.</p>' : ""}<div class="toolbar"><span class="badge ${gto?.mode === "demo" ? "demo" : ""}">${gto?.mode === "demo" ? "ДЕМО · синтетические данные" : gto?.mode === "sheets" ? "Google Sheets · только чтение" : "Источник ещё не определён"}</span>${button(gtoLoading ? "Обновление…" : SOURCE_MODE === "static-demo" ? "Пересчитать демо" : "Обновить", "refresh", gtoLoading ? "disabled" : "")}</div><p class="muted">${SOURCE_MODE === "static-demo" ? `Демо пересчитано: ${date(gto?.lastSuccess)} (Москва). Это не обновление Google Sheets.` : `Последнее успешное обновление: ${date(gto?.lastSuccess)} (Москва). Сервер обновляет источник не чаще раза в 30 секунд.`}</p>${gtoLoading ? '<p role="status">Загрузка статистики…</p>' : ""}${gtoError ? `<p class="error" role="alert">${esc(gtoError)} ${gto?.stats ? "Показаны устаревшие данные." : ""}</p>` : ""}`;
@@ -741,6 +752,28 @@ document.addEventListener("click", async (e) => {
   if (action === "new" || action === "edit")
     openEditor(kind, action === "edit" ? id : null);
   if (action === "cloud-refresh") await syncTasks();
+  if (action === "task-backup") {
+    const old = localStorage.getItem("gvi-local-before-sheets");
+    if (old) download(old, "gvi-before-sheets.json");
+    else toast("Резервная копия до подключения не найдена.");
+  }
+  if (action === "task-logout") {
+    signOutTasks();
+    state.tasks = [];
+    cloud.ready = false;
+    cloud.revision = "";
+    render();
+  }
+  if (action === "task-disconnect") {
+    if (
+      confirm(
+        "Отключить таблицу на этом устройстве? Данные в таблице сохранятся.",
+      )
+    ) {
+      clearTaskEndpoint();
+      location.reload();
+    }
+  }
   if (action === "refresh") refresh();
   if (action === "resetFilters") {
     Object.keys(gtoFilters).forEach((k) => (gtoFilters[k] = ""));
@@ -776,7 +809,33 @@ document.addEventListener("click", async (e) => {
     download(bytes, r.fileName, "application/octet-stream");
   }
 });
-document.addEventListener("submit", (e) => {
+document.addEventListener("submit", async (e) => {
+  if (e.target.id === "task-endpoint") {
+    e.preventDefault();
+    try {
+      setTaskEndpoint(new FormData(e.target).get("endpoint"));
+      location.reload();
+    } catch (err) {
+      toast(err.message);
+    }
+    return;
+  }
+  if (e.target.id === "task-login") {
+    e.preventDefault();
+    const form = e.target;
+    const submit = form.querySelector("button[type=submit]");
+    submit.disabled = true;
+    try {
+      await loginTasks(new FormData(form).get("password"));
+      form.reset();
+      await syncTasks();
+    } catch (err) {
+      toast(err.message);
+    } finally {
+      submit.disabled = false;
+    }
+    return;
+  }
   if (e.target.id === "gto-filters") {
     e.preventDefault();
     const f = new FormData(e.target);

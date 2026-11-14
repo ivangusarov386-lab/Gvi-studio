@@ -2,7 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import vm from "node:vm";
 import { readFile } from "node:fs/promises";
-import { createHash } from "node:crypto";
+import { createHash, createHmac } from "node:crypto";
 import { fresh } from "../lib/store.js";
 const code = await readFile(
   new URL("../apps-script/Code.gs", import.meta.url),
@@ -218,4 +218,21 @@ test("larger workspaces extend grid in the same atomic batch", () => {
   assert.equal(saved.tasks.length, 1000);
   assert.equal(f.request.requests[0].appendDimension.length, 1);
   assert.equal(f.request.requests[1].updateCells.rows.length, 1001);
+});
+
+test('HTTP endpoint requires a valid session and password change revokes it',()=>{
+ const f=fixture(),props={OWNER_EMAIL:'owner@example.invalid',WORKSPACE_SPREADSHEET_ID:'synthetic-workspace',TASK_PASSWORD:'synthetic-password',TASK_SIGNING_KEY:'synthetic-key'};
+ f.ctx.PropertiesService={getScriptProperties:()=>({getProperty:k=>props[k]||null})};
+ const cache=new Map();f.ctx.CacheService={getScriptCache:()=>({get:k=>cache.get(k),put:(k,v)=>cache.set(k,v),remove:k=>cache.delete(k)})};
+ f.ctx.Utilities.base64EncodeWebSafe=x=>Buffer.from(x).toString('base64url');
+ f.ctx.Utilities.base64DecodeWebSafe=x=>Buffer.from(x,'base64url');
+ f.ctx.Utilities.newBlob=x=>({getDataAsString:()=>Buffer.from(x).toString()});
+ f.ctx.Utilities.computeHmacSha256Signature=(body,key)=>createHmac('sha256',key).update(body).digest();
+ f.ctx.Utilities.getUuid=()=> 'synthetic-nonce';
+ f.ctx.ContentService={MimeType:{JSON:'json'},createTextOutput:text=>({setMimeType:()=>JSON.parse(text)})};
+ const send=data=>f.ctx.doPost({postData:{contents:JSON.stringify(data)}});
+ assert.equal(send({action:'getTasks'}).code,'AUTH_REQUIRED');assert.equal(send({action:'login',password:'bad'}).ok,false);
+ const login=send({action:'login',password:'synthetic-password'});assert.equal(login.ok,true);
+ assert.equal(send({action:'getTasks',session:login.session}).ok,true);
+ props.TASK_PASSWORD='changed-password';assert.equal(send({action:'getTasks',session:login.session}).code,'AUTH_REQUIRED');
 });

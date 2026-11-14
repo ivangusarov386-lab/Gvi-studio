@@ -40,7 +40,9 @@ function setupWorkspace() {
     const created = !id;
     const book = id
       ? SpreadsheetApp.openById(id)
-      : SpreadsheetApp.create("GVI Studio — рабочие задачи");
+      : (typeof SpreadsheetApp.getActiveSpreadsheet === "function" &&
+          SpreadsheetApp.getActiveSpreadsheet()) ||
+        SpreadsheetApp.create("GVI Studio — рабочие задачи");
     // Persist the ID first; a retry repairs only an empty, newly created sheet.
     if (!id) props.setProperty("WORKSPACE_SPREADSHEET_ID", book.getId());
     let sheet = book.getSheetByName("Tasks");
@@ -193,6 +195,9 @@ function snapshot_(data) {
 }
 function getTasks() {
   owner_();
+  return getTasks_();
+}
+function getTasks_() {
   const lock = LockService.getScriptLock();
   lock.waitLock(30000);
   try {
@@ -203,6 +208,9 @@ function getTasks() {
 }
 function saveTasks(request) {
   owner_();
+  return saveTasks_(request);
+}
+function saveTasks_(request) {
   if (!request || typeof request.revision !== "string")
     throw new Error("INVALID_REQUEST");
   const tasks = normalizeTasks_(request.tasks);
@@ -252,5 +260,133 @@ function saveTasks(request) {
     return snapshot_(read_());
   } finally {
     lock.releaseLock();
+  }
+}
+
+// Отдельный пароль для панели GVI Studio; функция выполняется владельцем в редакторе таблицы.
+function setupTaskPassword() {
+  owner_();
+  const ui = SpreadsheetApp.getUi();
+  const prompt = ui.prompt(
+    "Пароль GVI Studio",
+    "Введите новый пароль не короче 12 символов. Он не сохраняется в коде.",
+    ui.ButtonSet.OK_CANCEL,
+  );
+  if (prompt.getSelectedButton() !== ui.Button.OK) return;
+  const password = prompt.getResponseText();
+  if (password.length < 12)
+    throw new Error("Пароль должен содержать не менее 12 символов.");
+  const properties = PropertiesService.getScriptProperties();
+  properties.setProperties({
+    TASK_PASSWORD: password,
+    TASK_SIGNING_KEY: Utilities.getUuid() + Utilities.getUuid(),
+  });
+}
+function taskEqual_(a, b) {
+  a = String(a);
+  b = String(b);
+  let d = a.length ^ b.length;
+  for (let i = 0; i < Math.max(a.length, b.length); i++)
+    d |= (a.charCodeAt(i) || 0) ^ (b.charCodeAt(i) || 0);
+  return d === 0;
+}
+function taskSign_(body, key, password) {
+  return Utilities.base64EncodeWebSafe(
+    Utilities.computeHmacSha256Signature(body, key + ":" + password),
+  );
+}
+function taskJson_(data) {
+  return ContentService.createTextOutput(JSON.stringify(data)).setMimeType(
+    ContentService.MimeType.JSON,
+  );
+}
+function doPost(e) {
+  try {
+    const data = JSON.parse(e.postData.contents),
+      props = PropertiesService.getScriptProperties();
+    const password = props.getProperty("TASK_PASSWORD"),
+      key = props.getProperty("TASK_SIGNING_KEY");
+    if (!password || !key)
+      return taskJson_({
+        ok: false,
+        code: "AUTH_REQUIRED",
+        error: "Пароль таблицы не настроен.",
+      });
+    if (data.action === "login") {
+      const lock = LockService.getScriptLock();
+      lock.waitLock(10000);
+      try {
+        const cache = CacheService.getScriptCache(),
+          count = Number(cache.get("task_login_failures") || 0);
+        if (count >= 20)
+          return taskJson_({
+            ok: false,
+            error: "Слишком много попыток. Подождите минуту.",
+          });
+        if (!taskEqual_(data.password || "", password)) {
+          cache.put("task_login_failures", String(count + 1), 60);
+          return taskJson_({ ok: false, error: "Неверный пароль." });
+        }
+        cache.remove("task_login_failures");
+        const body = Utilities.base64EncodeWebSafe(
+          JSON.stringify({
+            scope: "gvi-tasks",
+            exp: Date.now() + 8 * 60 * 60 * 1000,
+            nonce: Utilities.getUuid(),
+          }),
+        );
+        return taskJson_({
+          ok: true,
+          session: body + "." + taskSign_(body, key, password),
+        });
+      } finally {
+        lock.releaseLock();
+      }
+    }
+    const parts = String(data.session || "").split(".");
+    if (
+      parts.length !== 2 ||
+      !taskEqual_(parts[1], taskSign_(parts[0], key, password))
+    )
+      return taskJson_({
+        ok: false,
+        code: "AUTH_REQUIRED",
+        error: "Войдите с паролем.",
+      });
+    const token = JSON.parse(
+      Utilities.newBlob(
+        Utilities.base64DecodeWebSafe(parts[0]),
+      ).getDataAsString(),
+    );
+    if (
+      token.scope !== "gvi-tasks" ||
+      token.exp <= Date.now() ||
+      token.exp > Date.now() + 8 * 60 * 60 * 1000
+    )
+      return taskJson_({
+        ok: false,
+        code: "AUTH_REQUIRED",
+        error: "Сеанс истёк.",
+      });
+    if (data.action === "getTasks")
+      return taskJson_({ ok: true, data: getTasks_() });
+    if (data.action === "saveTasks")
+      return taskJson_({ ok: true, data: saveTasks_(data.payload) });
+    return taskJson_({ ok: false, error: "Неизвестное действие." });
+  } catch (err) {
+    const code = [
+      "CONFLICT",
+      "SCHEMA_ERROR",
+      "NOT_CONFIGURED",
+      "INVALID_TASK",
+      "INVALID_FIELD",
+      "INVALID_DATE",
+      "WORKSPACE_TOO_LARGE",
+    ].find((c) => String(err.message || err).includes(c));
+    return taskJson_({
+      ok: false,
+      code: code || "ERROR",
+      error: "Операция не выполнена. Проверьте настройки и повторите.",
+    });
   }
 }

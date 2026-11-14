@@ -5,5 +5,5 @@
     "enabledAdvancedServices": [{"userSymbol": "Sheets", "serviceId": "sheets", "version": "v4"}]
   },
   "oauthScopes": ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/userinfo.email"],
-  "webapp": {"access": "MYSELF", "executeAs": "USER_DEPLOYING"}
+  "webapp": {"access": "ANYONE_ANONYMOUS", "executeAs": "USER_DEPLOYING"}
 }
