@@ -215,15 +215,55 @@ test("adapter makes only GET values requests against separate configured synthet
   }
 });
 
-test('empty mapped statuses remain unknown, even if a mapping attempts to classify blanks', () => {
-  const spec={columns:{id:'ID',participant:'P',resultAt:'Time',status:'S',level:'L'},statusMap:{'':'passed'},levelMap:{'':'gold'}};
-  const [row]=mapRows([['ID','P','Time','S','L'],['a','p','2026-11-01T10:00:00Z','','']],spec,'results');
-  assert.equal(row.status,'unknown'); assert.equal(row.level,'unknown');
+test("empty mapped statuses remain unknown, even if a mapping attempts to classify blanks", () => {
+  const spec = {
+    columns: {
+      id: "ID",
+      participant: "P",
+      resultAt: "Time",
+      status: "S",
+      level: "L",
+    },
+    statusMap: { "": "passed" },
+    levelMap: { "": "gold" },
+  };
+  const [row] = mapRows(
+    [
+      ["ID", "P", "Time", "S", "L"],
+      ["a", "p", "2026-11-01T10:00:00Z", "", ""],
+    ],
+    spec,
+    "results",
+  );
+  assert.equal(row.status, "unknown");
+  assert.equal(row.level, "unknown");
 });
-test('failed initial source reads are throttled without cached demo substitution', async () => {
-  let calls=0;
-  await withServer({loadSource:async()=>{calls++;throw new Error('offline');}},async base=>{
-    for(let i=0;i<3;i++)assert.equal((await fetch(base+'/api/gto')).status,503);
-    assert.equal(calls,1);
+test("failed initial source reads are throttled without cached demo substitution", async () => {
+  let calls = 0;
+  await withServer(
+    {
+      loadSource: async () => {
+        calls++;
+        throw new Error("offline");
+      },
+    },
+    async (base) => {
+      for (let i = 0; i < 3; i++)
+        assert.equal((await fetch(base + "/api/gto")).status, 503);
+      assert.equal(calls, 1);
+    },
+  );
+});
+
+test("server runtime explicitly selects API mode, while synthetic modules are not served", async () => {
+  await withServer({}, async (base) => {
+    const response = await fetch(base + "/lib/runtime.js");
+    assert.equal(response.status, 200);
+    assert.match(response.headers.get("content-type"), /javascript/);
+    assert.equal(
+      await response.text(),
+      'export const SOURCE_MODE = "server";\n',
+    );
+    assert.equal((await fetch(base + "/lib/gto-demo.js")).status, 404);
   });
 });

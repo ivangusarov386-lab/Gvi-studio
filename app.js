@@ -1,3 +1,4 @@
+import { SOURCE_MODE } from "./lib/runtime.js";
 import {
   projects,
   originalProjects,
@@ -314,7 +315,7 @@ function settings() {
   return `<h2>Настройки и резервная копия</h2><p class="notice">Данные привязаны к браузеру и адресу панели. Очистка данных сайта удалит их. Компьютер и iPhone не синхронизируются. Резервная копия содержит ваши тексты и файлы — храните её приватно.</p><div class="actions">${button("Экспортировать копию", "export", "", true)}${button("Скачать исходное хранилище", "raw")}</div><label class="field">Импорт резервной копии (JSON, до 10 МБ)<input type="file" id="import" accept="application/json,.json"></label><p class="muted">Импорт заменяет все локальные данные после подтверждения. Сначала экспортируйте текущую копию.</p><h3>Подключение ГТО</h3>${gtoStatus()}<p>Рабочий режим выбирается на сервере. Учётные данные Google в браузере не хранятся.</p><h3>Следующий этап хранения</h3><p>SQLite на том же сервере за авторизацией: одна база задач, материалов и истории для всех ваших устройств. В этой версии серверного хранения ещё нет.</p>`;
 }
 function gtoStatus() {
-  return `<div class="toolbar"><span class="badge ${gto?.mode === "demo" ? "demo" : ""}">${gto?.mode === "demo" ? "ДЕМО · синтетические данные" : gto?.mode === "sheets" ? "Google Sheets · только чтение" : "Источник ещё не определён"}</span>${button(gtoLoading ? "Обновление…" : "Обновить", "refresh", gtoLoading ? "disabled" : "")}</div><p class="muted">Последнее успешное обновление: ${date(gto?.lastSuccess)} (Москва). Сервер обновляет источник не чаще раза в 30 секунд.</p>${gtoLoading ? '<p role="status">Загрузка статистики…</p>' : ""}${gtoError ? `<p class="error" role="alert">${esc(gtoError)} ${gto?.stats ? "Показаны устаревшие данные." : ""}</p>` : ""}`;
+  return `${SOURCE_MODE === "static-demo" ? '<p class="notice">Статическое демо · Google Sheets не подключены. Показаны только синтетические данные. Задачи сохраняются в этом браузере.</p>' : ""}<div class="toolbar"><span class="badge ${gto?.mode === "demo" ? "demo" : ""}">${gto?.mode === "demo" ? "ДЕМО · синтетические данные" : gto?.mode === "sheets" ? "Google Sheets · только чтение" : "Источник ещё не определён"}</span>${button(gtoLoading ? "Обновление…" : SOURCE_MODE === "static-demo" ? "Пересчитать демо" : "Обновить", "refresh", gtoLoading ? "disabled" : "")}</div><p class="muted">${SOURCE_MODE === "static-demo" ? `Демо пересчитано: ${date(gto?.lastSuccess)} (Москва). Это не обновление Google Sheets.` : `Последнее успешное обновление: ${date(gto?.lastSuccess)} (Москва). Сервер обновляет источник не чаще раза в 30 секунд.`}</p>${gtoLoading ? '<p role="status">Загрузка статистики…</p>' : ""}${gtoError ? `<p class="error" role="alert">${esc(gtoError)} ${gto?.stats ? "Показаны устаревшие данные." : ""}</p>` : ""}`;
 }
 function statsCards(s, short = false) {
   const entries = short
@@ -383,16 +384,36 @@ async function refresh() {
   gtoError = "";
   render();
   try {
-    const response = await fetch(
-      "/api/gto?" + new URLSearchParams(gtoFilters),
-      { signal: AbortSignal.timeout(15000) },
-    );
-    const body = await response.json();
+    let body;
+    let ok = true;
+    if (SOURCE_MODE === "static-demo") {
+      const [{ demoSource }, { aggregate }] = await Promise.all([
+        import("./lib/gto-demo.js"),
+        import("./lib/gto-stats.js"),
+      ]);
+      body = {
+        mode: "demo",
+        stale: false,
+        lastSuccess: new Date().toISOString(),
+        stats: aggregate(demoSource, gtoFilters),
+      };
+    } else if (SOURCE_MODE === "server") {
+      const endpoint = new URL("./api/gto", import.meta.url);
+      endpoint.search = new URLSearchParams(gtoFilters).toString();
+      const response = await fetch(endpoint, {
+        signal: AbortSignal.timeout(15000),
+      });
+      body = await response.json();
+      ok = response.ok;
+    } else {
+      throw new Error(
+        "Неизвестный режим источника. Проверьте настройку размещения.",
+      );
+    }
     if (id !== requestId) return;
     if (body.mode) gto = body;
     else gto = null;
-    if (!response.ok)
-      throw new Error(body.error || "Не удалось обновить статистику.");
+    if (!ok) throw new Error(body.error || "Не удалось обновить статистику.");
   } catch (e) {
     if (id !== requestId) return;
     if (

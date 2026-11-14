@@ -80,6 +80,10 @@ export function createServer({
     if (req.method !== "GET")
       return send(405, { error: "Доступно только чтение" });
     const url = new URL(req.url, "http://localhost");
+    if (url.pathname === "/lib/runtime.js") {
+      // This route is after authentication: live never silently becomes static demo.
+      return send(200, 'export const SOURCE_MODE = "server";\n', mime.js);
+    }
     if (url.pathname === "/api/gto") {
       const filters = Object.fromEntries(
         ["from", "to", "eventDate", "category"].map((k) => [

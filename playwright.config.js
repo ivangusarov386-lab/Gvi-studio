@@ -14,11 +14,18 @@ export default defineConfig({
   workers: 1,
   reporter: "list",
   use: { baseURL: "http://127.0.0.1:3100", trace: "off", screenshot: "off" },
-  webServer: {
-    command: "PORT=3100 GTO_MODE=demo npm start",
-    url: "http://127.0.0.1:3100",
-    reuseExistingServer: false,
-  },
+  webServer: [
+    {
+      command: "PORT=3100 GTO_MODE=demo npm start",
+      url: "http://127.0.0.1:3100",
+      reuseExistingServer: false,
+    },
+    {
+      command: "node tests/serve-pages.js",
+      url: "http://127.0.0.1:3101/Gvi-studio/",
+      reuseExistingServer: false,
+    },
+  ],
   projects: [
     { name: "desktop", use: { ...devices["Desktop Chrome"], ...chromium } },
     {
