@@ -1,22 +1,83 @@
 <!doctype html>
 <html lang="ru">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<meta name="description" content="GVI Studio — личная студия проектов: ГТО, МЭШ, SEO и Точка старта.">
-<title>GVI Studio — Студия проектов</title>
-<link rel="stylesheet" href="./styles.css">
-<script src="./app.js" defer></script>
-</head>
-<body>
-<div id="orbita-studio">
-
-<header><div class="os-brand"><span class="gvi-logo"><img src="./assets/gvi-studio-logo.jpeg" alt="GVI Studio"></span></div><nav class="os-nav" aria-label="Разделы макета"><strong>Рабочий стол</strong><span>Библиотека материалов</span><span>История</span></nav><span class="header-label">Личное пространство</span></header>
-<main><div class="os-intro"><div><div class="os-kicker">GVI Studio / Управление проектами</div><h2>Ваши проекты.<br><span>Следующий шаг.</span></h2><p>Выберите проект — всё необходимое появится ниже.</p></div><span class="os-private"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="10" width="14" height="11" rx="2"/><path d="M8 10V7a4 4 0 0 1 8 0v3M12 14v3"/></svg>Демо · локально</span></div>
-<div class="section-label"><span>01 / Проекты</span><span>4 пространства</span></div><div class="os-grid" aria-label="Проекты"><button class="os-project" data-project="gto" aria-pressed="true"><span class="os-icon"><span class="project-number">01</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span><strong>Система ГТО</strong><small>Регистрация и протокол</small></button><button class="os-project" data-project="mesh" aria-pressed="false"><span class="os-icon"><span class="project-number">02</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span><strong>МЭШ</strong><small>Разработка расширения</small></button><button class="os-project" data-project="seo" aria-pressed="false"><span class="os-icon"><span class="project-number">03</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span><strong>SEO сайта</strong><small>Поиск и рост</small></button><button class="os-project" data-project="start" aria-pressed="false"><span class="os-icon"><span class="project-number">04</span><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M6 18 18 6M6 6h12v12"/></svg></span><strong>Точка старта</strong><small>Истории и видео</small></button></div>
-<div class="os-layout"><section class="os-work"><div class="os-workhead"><h3 data-project-title>Система ГТО</h3><span class="os-mini">Рабочее пространство</span></div><div class="os-tabs"><button class="os-tab" data-view="tasks" aria-pressed="true">Задачи</button><button class="os-tab" data-view="materials" aria-pressed="false">Материалы</button><button class="os-tab" data-view="versions" aria-pressed="false">Версии</button></div><div data-rows aria-live="polite"></div></section><aside class="os-next"><div class="os-nexttop"><div class="os-kicker">02 / Следующее действие</div><h4 data-focus>Подготовить тестовую среду</h4><p data-desc>Отдельная таблица и синтетические участники для безопасной проверки регистрации.</p></div><div class="os-bottom"><div class="os-detail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 21V3h13l-3 5 3 5H5"/></svg>Высокий приоритет</div><div class="os-detail"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="5" y="4" width="14" height="17" rx="2"/><path d="M9 3h6v4H9Zm0 11 2 2 4-4"/></svg><span data-result>Результат: готовый тестовый сценарий</span></div><button class="os-open" data-open aria-expanded="false">Что входит в задачу<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 12h16m-6-6 6 6-6 6"/></svg></button><div class="os-extra" data-extra hidden></div></div></aside></div><div class="os-foot"><span>GVI STUDIO / РАБОЧАЯ ПАНЕЛЬ</span><span>Демонстрационные данные · Google Sheets не подключены</span></div></main>
-
-</div>
-
-</body>
+  <head>
+    <meta charset="utf-8" />
+    <meta
+      name="viewport"
+      content="width=device-width,initial-scale=1,viewport-fit=cover"
+    />
+    <meta
+      name="description"
+      content="GVI Studio — личная панель проектов. Локальный прототип и отдельный деморежим ГТО."
+    />
+    <title>GVI Studio — Студия проектов</title>
+    <link rel="stylesheet" href="/styles.css" />
+    <script type="module" src="/app.js"></script>
+  </head>
+  <body>
+    <a class="skip" href="#workspace">Перейти к рабочей области</a>
+    <div id="orbita-studio">
+      <header>
+        <a class="os-brand" href="#overview" aria-label="GVI Studio — обзор"
+          ><span class="gvi-logo"
+            ><img
+              src="/assets/gvi-studio-logo.jpeg"
+              alt="GVI Studio"
+              width="175"
+              height="175" /></span
+        ></a>
+        <nav
+          class="os-nav"
+          aria-label="Основная навигация"
+          id="navigation"
+        ></nav>
+        <span class="header-label">Личное пространство</span>
+      </header>
+      <main>
+        <div class="os-intro">
+          <div>
+            <div class="os-kicker">GVI Studio / Управление проектами</div>
+            <h1>Ваши проекты.<br /><span>Следующий шаг.</span></h1>
+            <p>Четыре пространства. Один рабочий стол.</p>
+          </div>
+          <span class="os-private">Прототип · хранение в браузере</span>
+        </div>
+        <div class="notice">
+          Задачи и материалы сохраняются на этом устройстве. Синхронизации с
+          iPhone нет. Делайте резервные копии в настройках.
+        </div>
+        <div class="section-label">
+          <span>01 / Проекты</span><span>4 пространства</span>
+        </div>
+        <div class="os-grid" id="projects" aria-label="Проекты"></div>
+        <div class="os-layout">
+          <section class="os-work" id="workspace" tabindex="-1"></section>
+          <aside class="os-next" id="next-action"></aside>
+        </div>
+        <div class="os-foot">
+          <span>GVI STUDIO / РАБОЧАЯ ПАНЕЛЬ</span
+          ><span>Локальный прототип · подключения обозначены отдельно</span>
+        </div>
+      </main>
+    </div>
+    <div id="notification" role="status" aria-live="polite"></div>
+    <dialog id="editor" aria-labelledby="editor-title">
+      <form id="editor-form">
+        <div class="dialog-head">
+          <h2 id="editor-title"></h2>
+          <button type="button" data-close aria-label="Закрыть форму">×</button>
+        </div>
+        <div id="editor-fields"></div>
+        <p id="form-error" role="alert"></p>
+        <div class="actions">
+          <button class="primary" type="submit">Сохранить</button
+          ><button type="button" data-close>Отмена</button>
+        </div>
+      </form>
+    </dialog>
+    <noscript
+      >Для работы панели включите JavaScript. Google Sheets не подключаются без
+      серверной настройки.</noscript
+    >
+  </body>
 </html>

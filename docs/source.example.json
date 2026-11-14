@@ -1,0 +1,20 @@
+{
+  "rulesVersion": 1,
+  "repeatRule": "latest-in-period",
+  "timeZone": "Europe/Moscow",
+  "levelMeaning": "Предварительный уровень из источника; не официальное присвоение знака",
+  "allowedCategories": ["Тестовая группа A", "Тестовая группа B"],
+  "registrations": {
+    "spreadsheetId": "REPLACE_WITH_SYNTHETIC_REGISTRATION_SHEET_ID",
+    "range": "'Тест регистрации'!A1:E1000",
+    "columns": {"id": "registration_id", "participant": "participant_id", "registeredAt": "registered_at", "eventDate": "event_date", "category": "category"}
+  },
+  "results": {
+    "spreadsheetId": "REPLACE_WITH_SYNTHETIC_RESULTS_SHEET_ID",
+    "range": "'Тест результатов'!A1:F1000",
+    "columns": {"id": "attempt_id", "participant": "participant_id", "resultAt": "result_at", "status": "status", "level": "level", "category": "category"},
+    "statusMap": {"сдал": "passed", "не сдал": "not-passed"},
+    "levelMap": {"золото": "gold", "серебро": "silver", "бронза": "bronze"}
+  },
+  "protocolSpreadsheetId": "REPLACE_WITH_SYNTHETIC_PROTOCOL_SHEET_ID"
+}
