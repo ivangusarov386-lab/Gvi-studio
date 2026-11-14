@@ -26,11 +26,12 @@ html = html
       bundled.outputFiles[0].text.replace(/<\/script/gi, "<\\/script") +
       "</script></body>",
   );
+await writeFile("apps-script/Index.html", html);
 await writeFile(output + "/Index.html", html);
 await copyFile("apps-script/Code.gs", output + "/Code.gs");
 await copyFile("apps-script/appsscript.json", output + "/appsscript.json");
 console.log(
-  "Apps Script package built in " +
+  "Apps Script files updated in apps-script/ and " +
     output +
     " (no credentials, no external frontend requests).",
 );
